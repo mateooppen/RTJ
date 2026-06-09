@@ -118,6 +118,10 @@
   input::placeholder{color:var(--faint)}
   .reg-top{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
   .reg-top input[type=date]{text-align:left; width:auto}
+  .reg-top select{width:auto}
+  .pasos-input{font-size:21px; font-weight:600; border:none; background:transparent; padding:0; text-align:left; width:100%; color:var(--text)}
+  .pasos-input:focus{outline:none}
+  .pasos-input::placeholder{color:var(--faint)}
   .setlabels{display:grid; grid-template-columns:30px 1fr 1fr 1fr; gap:8px; font-size:11px; color:var(--faint); margin:10px 0 6px; padding:0 2px; text-align:center}
   .setlabels span:first-child{text-align:left}
   .setrow{display:grid; grid-template-columns:30px 1fr 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px}
@@ -344,6 +348,8 @@ function saveData(d){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
 let APP_DATA = loadData();
 if(!APP_DATA.fuerza) APP_DATA.fuerza = [];
 if(!APP_DATA.config) APP_DATA.config = {};
+if(!APP_DATA.bici) APP_DATA.bici = [];
+if(!APP_DATA.pasos) APP_DATA.pasos = {};
 
 function isoOf(d){ const t=new Date(d.getTime()-d.getTimezoneOffset()*60000); return t.toISOString().slice(0,10); }
 function todayISO(){ return isoOf(new Date()); }
@@ -389,6 +395,18 @@ function ultimaDe(diaKey, exId){
   return {fecha:ses[0].fecha, sets:ses[0].ejercicios[exId]};
 }
 function sesionesSemana(){ const lun=lunesActual(); return APP_DATA.fuerza.filter(s=>{ const f=new Date(s.fecha+"T00:00:00"); return f>=lun; }).length; }
+function setPasos(v){ const n=parseInt(v,10); const k=todayISO(); if(isNaN(n)) delete APP_DATA.pasos[k]; else APP_DATA.pasos[k]=n; saveData(APP_DATA); }
+function guardarBici(){
+  const fecha=document.getElementById("regFecha").value||todayISO();
+  const tipo=document.getElementById("biciTipo").value;
+  const min=parseInt(document.getElementById("biciMin").value,10);
+  if(isNaN(min)||min<=0){ showToast("Anotá los minutos"); return; }
+  APP_DATA.bici.push({fecha, tipo, minutos:min, ts:Date.now()});
+  saveData(APP_DATA);
+  showToast("Bici guardada ✓");
+  renderRegistrar();
+}
+function biciReciente(){ return APP_DATA.bici.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,5); }
 
 /* ---------- Progresión (doble progresión) ---------- */
 function esTiempo(presc){ return /\bs\b|seg/i.test(presc); }
@@ -422,6 +440,7 @@ function renderHoy(){
   const now = new Date(); const dow = now.getDay();
   const t = SCHEDULE[dow];
   const ns = sesionesSemana();
+  const pasosHoy = APP_DATA.pasos[todayISO()];
   let html = `
     <div class="today">
       <p class="day">${DIAS[dow]}</p>
@@ -429,7 +448,7 @@ function renderHoy(){
       <p class="sub">${t.s}</p>
     </div>
     <div class="stats">
-      <div class="stat"><p class="label">Pasos hoy</p><p class="val">—</p></div>
+      <div class="stat"><p class="label">Pasos hoy</p><input id="pasosHoy" class="pasos-input" inputmode="numeric" value="${pasosHoy!=null?pasosHoy:''}" placeholder="—" onchange="setPasos(this.value)"><p style="font-size:11px;color:var(--faint);margin:2px 0 0">a mano · meta 7.000</p></div>
       <div class="stat"><p class="label">Fuerza esta semana</p><p class="val" style="color:${ns>=2?'var(--good)':'var(--text)'}">${ns} / 2</p></div>
     </div>
     <div class="card">
@@ -533,12 +552,37 @@ function renderRutina(){
 function setRutinaTab(k){ rutinaTab=k; renderRutina(); }
 
 /* ---------- Render: Registrar ---------- */
-let regDia = (function(){ const k=SCHEDULE[new Date().getDay()].k; return (k==="diaA"||k==="diaB")?k:"diaA"; })();
+let regDia = (function(){ const k=SCHEDULE[new Date().getDay()].k; return k || "diaA"; })();
 function setRegDia(k){ regDia=k; renderRegistrar(); }
+function renderBiciForm(){
+  const w = semanaActual();
+  const fase = w<=4 ? "Semanas 1-4 · continuo" : "Semanas 5-8 · con intervalos";
+  const hint = w<=4
+    ? "Esta etapa: 30-35 min continuos, a un ritmo en el que puedas hablar pero con respiración acelerada."
+    : "Esta etapa: un día de 40 min continuos y otro con intervalos (2' moderado / 1' fuerte).";
+  const tipoDef = w<=4 ? "Continuo" : "Intervalos";
+  let h = `<div class="note"><span class="ico">●</span><span><b>${fase}.</b> ${hint}</span></div>`;
+  h += `<div class="card">
+    <div class="reg-top" style="margin:0 0 12px"><span class="label" style="margin:0">Tipo</span>
+      <select id="biciTipo"><option ${tipoDef==='Continuo'?'selected':''}>Continuo</option><option ${tipoDef==='Intervalos'?'selected':''}>Intervalos</option></select></div>
+    <div class="reg-top" style="margin:0"><span class="label" style="margin:0">Duración (min)</span>
+      <input id="biciMin" inputmode="numeric" placeholder="30" style="width:90px"></div>
+  </div>`;
+  h += `<button class="btn" onclick="guardarBici()">Guardar bici</button>`;
+  const rec = biciReciente();
+  if(rec.length){
+    h += `<p class="label" style="margin:18px 2px 8px">Últimas sesiones</p><div class="card">`;
+    h += rec.map(b=>`<div class="week-row"><span>${fmtFecha(b.fecha)} · ${b.tipo}</span><span class="r">${b.minutos} min</span></div>`).join("");
+    h += `</div>`;
+  }
+  return h;
+}
 function renderRegistrar(){
-  const seg = ["diaA","diaB"].map(k=>`<button class="${k===regDia?'active':''}" onclick="setRegDia('${k}')">${RUTINA[k].titulo}</button>`).join("");
+  const tabs = [["diaA",RUTINA.diaA.titulo],["diaB",RUTINA.diaB.titulo],["bici","Bici"]];
+  const seg = tabs.map(t=>`<button class="${t[0]===regDia?'active':''}" onclick="setRegDia('${t[0]}')">${t[1]}</button>`).join("");
   let html = `<div class="seg">${seg}</div>`;
   html += `<div class="reg-top"><span class="label" style="margin:0">Fecha de la sesión</span><input type="date" id="regFecha" value="${todayISO()}"></div>`;
+  if(regDia==="bici"){ html += renderBiciForm(); document.getElementById("sc-registrar").innerHTML = html; return; }
   html += `<div class="note"><span class="ico">●</span><span><b>RIR = repeticiones en reserva:</b> cuántas reps más podrías haber hecho al terminar la serie. RIR 3 = te quedaban 3 en el tanque (cómodo); RIR 1 = casi al límite. Mide el esfuerzo sin llegar a la falla. Es opcional.</span></div>`;
 
   ejerciciosDia(regDia).forEach(it=>{
