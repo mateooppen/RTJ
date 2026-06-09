@@ -123,6 +123,9 @@
   .setrow{display:grid; grid-template-columns:30px 1fr 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px}
   .setrow .sn{font-size:13px; color:var(--dim); text-align:center}
   .lastlog{font-size:12px; color:var(--accent-text); background:var(--accent-soft); border-radius:var(--r-sm); padding:7px 10px; margin:8px 0 4px}
+  .sug{font-size:12px; border-radius:var(--r-sm); padding:7px 10px; margin:6px 0 4px; line-height:1.45}
+  .sug.subir{background:var(--good-soft); color:var(--good)}
+  .sug.mantener,.sug.tiempo{background:var(--surface2); color:var(--dim)}
   .btn{display:block; width:100%; background:var(--accent); color:var(--on-accent); border:none; padding:13px; border-radius:var(--r-sm); font:inherit; font-weight:600; font-size:15px; cursor:pointer; margin-top:4px}
   .btn:active{transform:scale(.99)}
   .toast{position:fixed; left:50%; bottom:88px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:13px; font-weight:500; z-index:50; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap}
@@ -296,18 +299,18 @@ const DESC = {
 const RUTINA = {
   diaA:{titulo:"Día A", foco:"Piernas · Empuje · Core", dur:"~35 min",
     bloques:[
-      {nombre:"Bloque 1 · series rectas", meta:"3 vueltas · 90s", tipo:"rectas", ejercicios:[
+      {nombre:"Bloque 1 · series rectas", descanso:"90s", tipo:"rectas", ejercicios:[
         {id:"goblet", presc:"10-12 rep"},{id:"floorpress", presc:"10-12 rep"}]},
-      {nombre:"Bloque 2 · circuito", meta:"3 vueltas · 45-60s", tipo:"circuito", ejercicios:[
+      {nombre:"Bloque 2 · circuito", descanso:"45-60s", tipo:"circuito", ejercicios:[
         {id:"pressh", presc:"10 rep"},{id:"puente", presc:"15 rep"},{id:"plancha", presc:"20-30 s"}]}
     ]},
   diaB:{titulo:"Día B", foco:"Bisagra · Tirón · Tobillo", dur:"~35 min",
     bloques:[
-      {nombre:"Bloque 1 · series rectas", meta:"3 vueltas · 90s", tipo:"rectas", ejercicios:[
+      {nombre:"Bloque 1 · series rectas", descanso:"90s", tipo:"rectas", ejercicios:[
         {id:"rdl", presc:"10-12 rep"},{id:"remo", presc:"10-12 rep / lado"}]},
-      {nombre:"Bloque 2 · circuito", meta:"3 vueltas · 45-60s", tipo:"circuito", ejercicios:[
+      {nombre:"Bloque 2 · circuito", descanso:"45-60s", tipo:"circuito", ejercicios:[
         {id:"zancada", presc:"8-10 / pierna"},{id:"facepull", presc:"12 rep"}]},
-      {nombre:"Bloque tobillo", meta:"2 vueltas", tipo:"tobillo", ejercicios:[
+      {nombre:"Bloque tobillo", descanso:"", tipo:"tobillo", ejercicios:[
         {id:"talones", presc:"15-20 rep"},{id:"talonessent", presc:"15-20 rep"},{id:"equilibrio", presc:"30 s / lado"}]}
     ]},
   bici:[
@@ -340,14 +343,42 @@ function loadData(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || 
 function saveData(d){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }catch(e){} }
 let APP_DATA = loadData();
 if(!APP_DATA.fuerza) APP_DATA.fuerza = [];
+if(!APP_DATA.config) APP_DATA.config = {};
 
-function todayISO(){ const d=new Date(); const t=new Date(d.getTime()-d.getTimezoneOffset()*60000); return t.toISOString().slice(0,10); }
+function isoOf(d){ const t=new Date(d.getTime()-d.getTimezoneOffset()*60000); return t.toISOString().slice(0,10); }
+function todayISO(){ return isoOf(new Date()); }
 function fmtFecha(iso){ const p=iso.split("-"); return p[2]+"/"+p[1]; }
+function lunesActual(){ const d=new Date(); const off=(d.getDay()+6)%7; d.setDate(d.getDate()-off); d.setHours(0,0,0,0); return d; }
+function lunesDe(d){ d=new Date(d); const off=(d.getDay()+6)%7; d.setDate(d.getDate()-off); d.setHours(0,0,0,0); return d; }
+
+if(!APP_DATA.config.inicio){ APP_DATA.config.inicio = isoOf(lunesActual()); saveData(APP_DATA); }
+
+function semanaActual(){
+  const ini = APP_DATA.config.inicio;
+  if(!ini) return 1;
+  const li = lunesDe(new Date(ini+"T00:00:00"));
+  const diff = Math.round((lunesActual()-li)/(7*24*3600*1000));
+  return Math.max(1, diff+1);
+}
+function vueltasDe(tipo){
+  if(tipo==="tobillo") return 2;
+  return semanaActual()<=2 ? 2 : 3;
+}
+function setInicio(v){
+  if(!v) return;
+  APP_DATA.config.inicio = v; saveData(APP_DATA);
+  actualizarFase(); renderHoy(); renderRutina(); renderRegistrar();
+}
+function actualizarFase(){
+  const w = semanaActual();
+  const el = document.getElementById("phaseLabel");
+  if(el) el.textContent = w<=8 ? `Semana ${w} de 8 · adaptación` : `Semana ${w} · fase intermedia`;
+}
+
 function ejerciciosDia(diaKey){
   const out=[];
   RUTINA[diaKey].bloques.forEach(b=>{
-    const series = b.tipo==="tobillo" ? 2 : 3;
-    b.ejercicios.forEach(it=> out.push({id:it.id, presc:it.presc, series}));
+    b.ejercicios.forEach(it=> out.push({id:it.id, presc:it.presc, series:vueltasDe(b.tipo), tipo:b.tipo}));
   });
   return out;
 }
@@ -357,8 +388,33 @@ function ultimaDe(diaKey, exId){
   ses.sort((a,b)=>(b.ts||0)-(a.ts||0));
   return {fecha:ses[0].fecha, sets:ses[0].ejercicios[exId]};
 }
-function lunesActual(){ const d=new Date(); const off=(d.getDay()+6)%7; d.setDate(d.getDate()-off); d.setHours(0,0,0,0); return d; }
 function sesionesSemana(){ const lun=lunesActual(); return APP_DATA.fuerza.filter(s=>{ const f=new Date(s.fecha+"T00:00:00"); return f>=lun; }).length; }
+
+/* ---------- Progresión (doble progresión) ---------- */
+function esTiempo(presc){ return /\bs\b|seg/i.test(presc); }
+function topReps(presc){
+  const r = presc.match(/(\d+)\s*-\s*(\d+)/);
+  if(r) return +r[2];
+  const u = presc.match(/(\d+)/);
+  return u ? +u[1] : null;
+}
+function sugerencia(diaKey, it){
+  if(esTiempo(it.presc)) return {tipo:"tiempo", txt:"Sumá segundos o repeticiones cuando te resulte fácil."};
+  const ult = ultimaDe(diaKey, it.id);
+  if(!ult) return null;
+  const top = topReps(it.presc);
+  const sets = ult.sets.filter(s=> s.reps!=="" && !isNaN(+s.reps));
+  if(!sets.length || top==null) return null;
+  let listo = true;
+  sets.forEach(s=>{
+    if(+s.reps < top) listo=false;
+    const rir = (s.rir!=="" && s.rir!=null && !isNaN(+s.rir)) ? +s.rir : null;
+    if(rir!==null && rir < 2) listo=false;
+  });
+  return listo
+    ? {tipo:"subir", txt:`Subí el peso: la última vez llegaste a ${top} reps con margen.`}
+    : {tipo:"mantener", txt:"Mantené el peso y sumá reps hasta llegar al tope del rango."};
+}
 function showToast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(window._tt); window._tt=setTimeout(()=>t.classList.remove("show"),1800); }
 
 /* ---------- Render: Hoy ---------- */
@@ -382,6 +438,18 @@ function renderHoy(){
     html += `<div class="week-row ${i===dow?'is-today':''}"><span>${DIAS[i]}</span><span class="r">${d.t}</span></div>`;
   }
   html += `<div class="week-row ${dow===0?'is-today':''}"><span>Domingo</span><span class="r">Descanso</span></div></div>`;
+
+  const w = semanaActual();
+  let faseTxt;
+  if(w<=2) faseTxt = "Fase de arranque: <b>2 vueltas</b> por bloque y con poco peso.";
+  else if(w<=8) faseTxt = "Vueltas completas: <b>3 vueltas</b> por bloque.";
+  else faseTxt = "Completaste la adaptación. Buen momento para pasar a una rutina intermedia.";
+  html += `<div class="card">
+      <p class="label">Tu plan</p>
+      <div class="week-row"><span>${w<=8?('Semana '+w+' de 8'):('Semana '+w)}</span><span class="r">${w<=8?'Adaptación':'Intermedia'}</span></div>
+      <p style="font-size:13px;color:var(--dim);margin:10px 0 12px;line-height:1.5">${faseTxt}</p>
+      <div class="reg-top" style="margin:0"><span class="label" style="margin:0">Arrancaste el</span><input type="date" value="${APP_DATA.config.inicio||todayISO()}" onchange="setInicio(this.value)"></div>
+    </div>`;
 
   if(t.k==="diaA"||t.k==="diaB"){
     html += `<div class="note"><span class="ico">↗</span><span>Tocá <b>Rutina</b> para ver los ejercicios de hoy y cómo se hacen.</span></div>`;
@@ -443,12 +511,16 @@ function renderRutina(){
     }).join("");
   } else {
     const dia = RUTINA[rutinaTab];
-    body += `<div class="note"><span class="ico">●</span><span><b>Semanas 1-2:</b> hacé solo <b>2 vueltas</b> de cada bloque y con poco peso. Desde la semana 3, las 3 vueltas completas.</span></div>`;
+    const w = semanaActual();
+    if(w<=2) body += `<div class="note"><span class="ico">●</span><span>Estás en la <b>semana ${w}</b>: hacé <b>2 vueltas</b> por bloque y con poco peso. Desde la semana 3 pasás a 3 vueltas completas.</span></div>`;
+    else body += `<div class="note"><span class="ico">●</span><span><b>Vueltas completas</b> (3 por bloque). En la pestaña Registrar la app te avisa cuándo subir el peso.</span></div>`;
     body += `<div class="note"><span class="ico">▲</span><span><b>Cómo subir peso:</b> cuando completes las vueltas en el tope de reps y todavía te sobren 2, subí el peso la próxima vez.</span></div>`;
     body += `<div class="block-head"><h3>Entrada en calor</h3><span class="meta">~6 min</span></div>`;
     body += CALENT.map(wuCard).join("");
     dia.bloques.forEach(b=>{
-      body += `<div class="block-head"><h3>${b.nombre}</h3><span class="meta">${b.meta}</span></div>`;
+      const v = vueltasDe(b.tipo);
+      const meta = v+" vueltas"+(b.descanso?" · "+b.descanso:"");
+      body += `<div class="block-head"><h3>${b.nombre}</h3><span class="meta">${meta}</span></div>`;
       if(b.tipo && DESC[b.tipo]) body += `<p class="block-desc">${DESC[b.tipo]}</p>`;
       body += b.ejercicios.map(exCard).join("");
     });
@@ -483,6 +555,8 @@ function renderRegistrar(){
         last = `<div class="lastlog">Última vez (${fmtFecha(ult.fecha)}): ${partes.join(" ")}</div>`;
       }
     }
+    const sg = sugerencia(regDia, it);
+    const sugHtml = sg ? `<div class="sug ${sg.tipo}">${sg.txt}</div>` : "";
     let rows = "";
     for(let i=1;i<=it.series;i++){
       rows += `<div class="setrow"><span class="sn">${i}</span>`
@@ -492,7 +566,7 @@ function renderRegistrar(){
     }
     html += `<div class="card"><p class="name" style="font-weight:500;margin:0">${e.nombre}</p>`
       + `<p style="font-size:12px;color:var(--dim);margin:2px 0 0">Objetivo: ${it.presc}</p>`
-      + last
+      + last + sugHtml
       + `<div class="setlabels"><span>Serie</span><span>Peso (kg)</span><span>Reps</span><span>RIR</span></div>`
       + rows + `</div>`;
   });
@@ -549,6 +623,7 @@ document.getElementById("themeBtn").addEventListener("click",()=>{
 });
 
 /* ---------- Init ---------- */
+actualizarFase();
 renderHoy();
 renderRutina();
 renderRegistrar();
