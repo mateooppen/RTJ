@@ -134,6 +134,13 @@
   .btn:active{transform:scale(.99)}
   .toast{position:fixed; left:50%; bottom:88px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:13px; font-weight:500; z-index:50; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap}
   .toast.show{opacity:1}
+  .chart-wrap{width:100%}
+  .chart-wrap svg{display:block; width:100%; height:auto}
+  .hist-row{display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:.5px solid var(--border); font-size:14px}
+  .hist-row:last-child{border-bottom:none}
+  .hist-row .h-sub{color:var(--dim)}
+  .hist-row .h-date{color:var(--dim); font-size:13px}
+  .dot-k{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:8px; vertical-align:1px}
 
   nav{
     position:fixed; bottom:0; left:0; right:0; z-index:30; background:var(--bg);
@@ -639,6 +646,86 @@ function guardarSesion(){
   renderHoy();
 }
 
+/* ---------- Progreso / adherencia ---------- */
+function semanaDe(fechaISO){
+  const li = lunesDe(new Date((APP_DATA.config.inicio||fechaISO)+"T00:00:00"));
+  const f = lunesDe(new Date(fechaISO+"T00:00:00"));
+  return Math.max(1, Math.round((f-li)/(7*864e5))+1);
+}
+function todasSesiones(){
+  return [].concat(
+    APP_DATA.fuerza.map(s=>({fecha:s.fecha, ts:s.ts||0, kind:"fuerza", dia:s.dia, ej:s.ejercicios})),
+    APP_DATA.bici.map(s=>({fecha:s.fecha, ts:s.ts||0, kind:"bici", tipo:s.tipo, min:s.minutos}))
+  );
+}
+function datosAdherencia(){
+  const all = todasSesiones();
+  let maxW = semanaActual();
+  all.forEach(s=>{ const w=semanaDe(s.fecha); if(w>maxW) maxW=w; });
+  const perWeek = new Array(maxW+1).fill(0);
+  all.forEach(s=>{ const w=semanaDe(s.fecha); if(w>=1&&w<=maxW) perWeek[w]++; });
+  let cum=0; const pts=[]; let semanasActivas=0;
+  for(let w=1; w<=maxW; w++){ if(perWeek[w]>0) semanasActivas++; cum+=perWeek[w]; pts.push({w, sem:perWeek[w], cum}); }
+  return {pts, total:cum, semanasActivas};
+}
+function buildAdherenciaSVG(pts){
+  const W=320,H=170,pl=26,pr=10,ptop=12,pb=22;
+  const n=pts.length;
+  const maxY=Math.max.apply(null,pts.map(p=>p.cum).concat([1]));
+  const X=i=> pl + (n<=1?0:(i/(n-1))*(W-pl-pr));
+  const Y=v=> ptop + (1 - v/maxY)*(H-ptop-pb);
+  const linePts = pts.map((p,i)=>X(i)+","+Y(p.cum)).join(" ");
+  const area = (n<=1)
+    ? ""
+    : `M ${X(0)},${Y(0)} L `+pts.map((p,i)=>X(i)+","+Y(p.cum)).join(" L ")+` L ${X(n-1)},${Y(0)} Z`;
+  const dots = pts.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.cum).toFixed(1)}" r="3" style="fill:var(--accent)"/>`).join("");
+  const everyOther = n>8;
+  const xlabels = pts.map((p,i)=> (everyOther && i%2) ? "" : `<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" style="fill:var(--faint);font-size:10px">${p.w}</text>`).join("");
+  const ybase=Y(0), ytop=Y(maxY);
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Entrenamientos acumulados por semana">
+    <line x1="${pl}" y1="${ybase}" x2="${W-pr}" y2="${ybase}" style="stroke:var(--border)" stroke-width="1"/>
+    <line x1="${pl}" y1="${ytop}" x2="${W-pr}" y2="${ytop}" style="stroke:var(--border)" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="${pl-6}" y="${ybase+4}" text-anchor="end" style="fill:var(--faint);font-size:10px">0</text>
+    <text x="${pl-6}" y="${ytop+4}" text-anchor="end" style="fill:var(--faint);font-size:10px">${maxY}</text>
+    ${area?`<path d="${area}" style="fill:var(--accent-soft)"/>`:""}
+    ${n>1?`<polyline points="${linePts}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round"/>`:""}
+    ${dots}
+    ${xlabels}
+    <text x="${(W)/2}" y="${H-6}" text-anchor="middle" style="fill:var(--faint);font-size:10px" opacity="0"> </text>
+  </svg>`;
+}
+function renderProgreso(){
+  const all = todasSesiones();
+  const cont = document.getElementById("sc-progreso");
+  if(!all.length){
+    cont.innerHTML = `<div class="placeholder"><div class="pic">▲</div><h2>Tu constancia</h2><p>Cuando registres tu primer entrenamiento, acá vas a ver tu progreso crecer semana a semana.</p></div>`;
+    return;
+  }
+  const d = datosAdherencia();
+  let html = `
+    <div class="stats">
+      <div class="stat"><p class="label">Entrenamientos</p><p class="val" style="color:var(--accent-text)">${d.total}</p></div>
+      <div class="stat"><p class="label">Semanas entrenadas</p><p class="val">${d.semanasActivas}</p></div>
+    </div>
+    <p class="label" style="margin:4px 2px 6px">Entrenamientos acumulados</p>
+    <div class="card"><div class="chart-wrap">${buildAdherenciaSVG(d.pts)}</div>
+      <p style="font-size:12px;color:var(--dim);margin:8px 0 0;text-align:center">Cada entrenamiento suma. Esta línea solo sube.</p>
+    </div>`;
+
+  const hist = all.sort((a,b)=> (b.ts-a.ts) || (a.fecha<b.fecha?1:-1)).slice(0,12);
+  html += `<p class="label" style="margin:18px 2px 8px">Historial reciente</p><div class="card">`;
+  html += hist.map(s=>{
+    if(s.kind==="fuerza"){
+      const ne = s.ej ? Object.keys(s.ej).length : 0;
+      const tit = RUTINA[s.dia] ? RUTINA[s.dia].titulo : "Fuerza";
+      return `<div class="hist-row"><span><span class="dot-k" style="background:var(--accent)"></span>${tit} · <span class="h-sub">${ne} ejercicio${ne===1?"":"s"}</span></span><span class="h-date">${fmtFecha(s.fecha)}</span></div>`;
+    }
+    return `<div class="hist-row"><span><span class="dot-k" style="background:var(--warn)"></span>Bici · <span class="h-sub">${s.tipo}, ${s.min} min</span></span><span class="h-date">${fmtFecha(s.fecha)}</span></div>`;
+  }).join("");
+  html += `</div>`;
+  cont.innerHTML = html;
+}
+
 /* ---------- Navegación ---------- */
 const TITLES = {hoy:"Hoy", rutina:"Rutina", registrar:"Registrar", progreso:"Progreso"};
 function setTab(tab){
@@ -647,6 +734,7 @@ function setTab(tab){
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
   document.getElementById("screenTitle").textContent = TITLES[tab];
   if(tab==="registrar") renderRegistrar();
+  if(tab==="progreso") renderProgreso();
   window.scrollTo(0,0);
 }
 document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab)));
