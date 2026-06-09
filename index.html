@@ -660,38 +660,38 @@ function todasSesiones(){
 }
 function datosAdherencia(){
   const all = todasSesiones();
-  let maxW = semanaActual();
-  all.forEach(s=>{ const w=semanaDe(s.fecha); if(w>maxW) maxW=w; });
-  const perWeek = new Array(maxW+1).fill(0);
-  all.forEach(s=>{ const w=semanaDe(s.fecha); if(w>=1&&w<=maxW) perWeek[w]++; });
-  let cum=0; const pts=[]; let semanasActivas=0;
-  for(let w=1; w<=maxW; w++){ if(perWeek[w]>0) semanasActivas++; cum+=perWeek[w]; pts.push({w, sem:perWeek[w], cum}); }
-  return {pts, total:cum, semanasActivas};
+  const byDay = {};
+  all.forEach(s=>{ byDay[s.fecha] = (byDay[s.fecha]||0) + 1; });
+  const dias = Object.keys(byDay).sort();
+  let cum=0; const pts=[];
+  dias.forEach(f=>{ cum += byDay[f]; pts.push({label:fmtFecha(f), cum}); });
+  const semanas = new Set();
+  all.forEach(s=> semanas.add(semanaDe(s.fecha)));
+  return {pts, total:cum, semanasActivas:semanas.size};
 }
 function buildAdherenciaSVG(pts){
-  const W=320,H=170,pl=26,pr=10,ptop=12,pb=22;
-  const n=pts.length;
-  const maxY=Math.max.apply(null,pts.map(p=>p.cum).concat([1]));
+  const data = [{label:"", cum:0}].concat(pts);
+  const W=320,H=170,pl=26,pr=12,ptop=12,pb=22;
+  const n=data.length;
+  const maxY=Math.max.apply(null, data.map(p=>p.cum).concat([1]));
   const X=i=> pl + (n<=1?0:(i/(n-1))*(W-pl-pr));
   const Y=v=> ptop + (1 - v/maxY)*(H-ptop-pb);
-  const linePts = pts.map((p,i)=>X(i)+","+Y(p.cum)).join(" ");
-  const area = (n<=1)
-    ? ""
-    : `M ${X(0)},${Y(0)} L `+pts.map((p,i)=>X(i)+","+Y(p.cum)).join(" L ")+` L ${X(n-1)},${Y(0)} Z`;
-  const dots = pts.map((p,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.cum).toFixed(1)}" r="3" style="fill:var(--accent)"/>`).join("");
-  const everyOther = n>8;
-  const xlabels = pts.map((p,i)=> (everyOther && i%2) ? "" : `<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" style="fill:var(--faint);font-size:10px">${p.w}</text>`).join("");
+  const linePts = data.map((p,i)=>X(i).toFixed(1)+","+Y(p.cum).toFixed(1)).join(" ");
+  const area = (n<=1) ? "" : `M ${X(0).toFixed(1)},${Y(0).toFixed(1)} L `+linePts.split(" ").join(" L ")+` L ${X(n-1).toFixed(1)},${Y(0).toFixed(1)} Z`;
+  const realN = pts.length;
+  const skip = realN>8;
+  const dots = data.map((p,i)=> i===0 ? "" : `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.cum).toFixed(1)}" r="3" style="fill:var(--accent)"/>`).join("");
+  const xlabels = data.map((p,i)=> (i===0 || (skip && i%2===0 && i!==n-1)) ? "" : `<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" style="fill:var(--faint);font-size:10px">${p.label}</text>`).join("");
   const ybase=Y(0), ytop=Y(maxY);
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Entrenamientos acumulados por semana">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Entrenamientos acumulados por día">
     <line x1="${pl}" y1="${ybase}" x2="${W-pr}" y2="${ybase}" style="stroke:var(--border)" stroke-width="1"/>
-    <line x1="${pl}" y1="${ytop}" x2="${W-pr}" y2="${ytop}" style="stroke:var(--border)" stroke-width="1" stroke-dasharray="3 3"/>
-    <text x="${pl-6}" y="${ybase+4}" text-anchor="end" style="fill:var(--faint);font-size:10px">0</text>
-    <text x="${pl-6}" y="${ytop+4}" text-anchor="end" style="fill:var(--faint);font-size:10px">${maxY}</text>
+    <line x1="${pl}" y1="${ytop.toFixed(1)}" x2="${W-pr}" y2="${ytop.toFixed(1)}" style="stroke:var(--border)" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="${pl-6}" y="${(ybase+4).toFixed(1)}" text-anchor="end" style="fill:var(--faint);font-size:10px">0</text>
+    <text x="${pl-6}" y="${(ytop+4).toFixed(1)}" text-anchor="end" style="fill:var(--faint);font-size:10px">${maxY}</text>
     ${area?`<path d="${area}" style="fill:var(--accent-soft)"/>`:""}
-    ${n>1?`<polyline points="${linePts}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round"/>`:""}
+    <polyline points="${linePts}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round"/>
     ${dots}
     ${xlabels}
-    <text x="${(W)/2}" y="${H-6}" text-anchor="middle" style="fill:var(--faint);font-size:10px" opacity="0"> </text>
   </svg>`;
 }
 function renderProgreso(){
